@@ -34,10 +34,11 @@ public:
 	void setH(int h);
     // 获取原始图片的高
 	int getH();
-    // 添加从原始图片到处理过后图片所添加黑边大小
-	void setBorder(int border);
-    // 获取从原始图片到处理过后图片所添加黑边大小
-	int getBorder();
+
+	void setScale(double scale);
+	double getScale();
+
+
 private:
     // 处理过后图片高
 	int height;
@@ -47,8 +48,8 @@ private:
     int w;
 	// 原始图片高
     int h;
-	// 从原始图片到处理图片所添加的黑边大小
-    int border;
+	//图像缩放比例， 目标 : 原图
+	double scale;
 	// 处理过后的图片
     cv::Mat img;
 };

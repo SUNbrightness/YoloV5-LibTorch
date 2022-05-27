@@ -3,10 +3,13 @@
 YoloV5::YoloV5(std::string ptFile, bool isCuda, bool isHalf, int height, int width, float confThres, float iouThres)
 {
 	model = torch::jit::load(ptFile);
+	
 	if (isCuda) 
 	{
 		model.to(torch::kCUDA);
 	}
+	
+
 	if (isHalf) 
 	{
 		model.to(torch::kHalf);
@@ -25,7 +28,7 @@ YoloV5::YoloV5(std::string ptFile, bool isCuda, bool isHalf, int height, int wid
 std::vector<torch::Tensor> YoloV5::non_max_suppression(torch::Tensor prediction, float confThres, float iouThres)
 {
 	torch::Tensor xc = prediction.select(2, 4) > confThres;
-	int maxWh = 4096;
+	int maxWh = 7680;
 	int maxNms = 30000;
 	std::vector<torch::Tensor> output;
 	for (int i = 0; i < prediction.size(0); i++)
@@ -35,6 +38,8 @@ std::vector<torch::Tensor> YoloV5::non_max_suppression(torch::Tensor prediction,
 	for (int i = 0; i < prediction.size(0); i++)
 	{
 		torch::Tensor x = prediction[i];
+
+
 		x = x.index_select(0, torch::nonzero(xc[i]).select(1, 0));
 		if (x.size(0) == 0) continue;
 		
@@ -42,7 +47,10 @@ std::vector<torch::Tensor> YoloV5::non_max_suppression(torch::Tensor prediction,
 		torch::Tensor box = xywh2xyxy(x.slice(1, 0, 4));
 		std::tuple<torch::Tensor, torch::Tensor> max_tuple = torch::max(x.slice(1, 5, x.size(1)), 1, true);
 		x = torch::cat({ box, std::get<0>(max_tuple), std::get<1>(max_tuple) }, 1);
+
 		x = x.index_select(0, torch::nonzero(std::get<0>(max_tuple) > confThres).select(1, 0));
+
+
 		int n = x.size(0);
 		if (n == 0)
 		{
@@ -55,6 +63,7 @@ std::vector<torch::Tensor> YoloV5::non_max_suppression(torch::Tensor prediction,
 		torch::Tensor c = x.slice(1, 5, 6) * maxWh;
 		torch::Tensor boxes = x.slice(1, 0, 4) + c, scores = x.select(1, 4);
 		torch::Tensor ix = nms(boxes, scores, iouThres).to(x.device());
+		
 		output[i] = x.index_select(0, ix).cpu();
 	}
 	return output;
@@ -79,14 +88,24 @@ cv::Mat YoloV5::img2RGB(cv::Mat img)
 	return img;
 }
 
+//torch::Tensor YoloV5::img2Tensor(cv::Mat img)
+//{
+//	torch::Tensor data = torch::from_blob(img.data, {(int)height, (int)width, 3 }, torch::kByte);
+//	data = data.permute({ 2, 0, 1 });
+//	data = data.toType(torch::kFloat);
+//	data = data.div(255);
+//	data = data.unsqueeze(0);
+//	return data;
+//}
+
 torch::Tensor YoloV5::img2Tensor(cv::Mat img)
 {
-	torch::Tensor data = torch::from_blob(img.data, {(int)height, (int)width, 3 }, torch::kByte);
-	data = data.permute({ 2, 0, 1 });
-	data = data.toType(torch::kFloat);
-	data = data.div(255);
-	data = data.unsqueeze(0);
-	return data;
+	img.convertTo(img, CV_32FC3, 1.0f / 255.0f);  // normalization 1/255
+	auto tensor_img = torch::from_blob(img.data, { 1,img.rows, img.cols, img.channels() });
+
+	tensor_img = tensor_img.permute({ 0, 3, 1, 2 }).contiguous();  // BHWC -> BCHW (Batch, Channel, Height, Width)
+
+	return tensor_img;
 }
 
 torch::Tensor YoloV5::xywh2xyxy(torch::Tensor x)
@@ -142,51 +161,104 @@ torch::Tensor YoloV5::nms(torch::Tensor bboxes, torch::Tensor scores, float thre
 	}
 	return torch::tensor(keep);
 }
-
 std::vector<torch::Tensor> YoloV5::sizeOriginal(std::vector<torch::Tensor> result, std::vector<ImageResizeData> imgRDs)
 {
+	
+
 	std::vector<torch::Tensor> resultOrg;
 	for (int i = 0; i < result.size(); i++)
 	{
-
 		torch::Tensor data = result[i];
 		ImageResizeData imgRD = imgRDs[i];
-		for (int j = 0; j < data.size(0); j++)
-		{
-			torch::Tensor tensor = data.select(0, j);
-			// (left, top, right, bottom)
-			if (imgRD.isW())
-			{
-				tensor[1] -= imgRD.getBorder();
-				tensor[3] -= imgRD.getBorder();
-				tensor[0] *= (float)imgRD.getW() / (float)imgRD.getWidth();
-				tensor[2] *= (float)imgRD.getW() / (float)imgRD.getWidth();
-				tensor[1] *= (float)imgRD.getH() / (float)(imgRD.getHeight() - 2 * imgRD.getBorder());
-				tensor[3] *= (float)imgRD.getH() / (float)(imgRD.getHeight() - 2 * imgRD.getBorder());
-			}
-			else
-			{
-				tensor[0] -= imgRD.getBorder();
-				tensor[2] -= imgRD.getBorder();
-				tensor[1] *= (float)imgRD.getH() / (float)imgRD.getHeight();
-				tensor[3] *= (float)imgRD.getH() / (float)imgRD.getHeight();
-				tensor[0] *= (float)imgRD.getW() / (float)(imgRD.getWidth() - 2 * imgRD.getBorder());
-				tensor[2] *= (float)imgRD.getW() / (float)(imgRD.getWidth() - 2 * imgRD.getBorder());
-			}
-			// 加了黑边之后预测结果可能在黑边上，就会造成结果为负数
-			for (int k = 0;k < 4; k++)
-			{
-				if (tensor[k].item().toFloat() < 0)
-				{
-					tensor[k] = 0;
-				}
-			}
-		}
+
+		double ph = (  imgRD.getHeight() - imgRD.getH() * imgRD.getScale()) / 2;
+		double pw = (imgRD.getWidth()  -  imgRD.getW() * imgRD.getScale()) / 2;
+
+		std::cout << "ph:" << ph << std::endl;
+		std::cout << "pw:" << pw << std::endl;
+
+		auto x1 = data.select(1, 0);
+		auto y1 = data.select(1, 1);
+		auto x2 = data.select(1, 2);
+		auto y2 = data.select(1, 3);
+
+
+		//减去黑边距离
+		x1 -= pw;
+		x2 -= pw;
+
+		y1 -= ph;
+		y2 -= ph;
+
+
+
+
+		//恢复原本尺寸，注意这一步，python与C++浮点数保存方式不一样，所以会有差异
+		data.slice(1,0,4) /= imgRD.getScale();
+
+		// 加了黑边之后预测结果可能在黑边上，就会造成结果为负数,或则超过了最大边界
+		x1.clamp_(0, imgRD.getW());
+		x2.clamp_(0, imgRD.getW());
+
+		y1.clamp_(0, imgRD.getH());
+		y2.clamp_(0, imgRD.getH());
+
+		//坐标四舍五入
+		data.slice(1, 0, 4).round_();
 		
 		resultOrg.push_back(data);
 	}
 	return resultOrg;
 }
+
+
+
+//std::vector<torch::Tensor> YoloV5::sizeOriginal(std::vector<torch::Tensor> result, std::vector<ImageResizeData> imgRDs)
+//{
+//	std::vector<torch::Tensor> resultOrg;
+//	for (int i = 0; i < result.size(); i++)
+//	{
+//
+//		torch::Tensor data = result[i];
+//		ImageResizeData imgRD = imgRDs[i];
+//		for (int j = 0; j < data.size(0); j++)
+//		{
+//			torch::Tensor tensor = data.select(0, j);
+//
+//			std::cout << "tensor:" << tensor << std::endl;
+//			//减去黑边距离
+//			tensor[0] -= imgRD.getWBorder();
+//			tensor[2] -= imgRD.getWBorder();
+//
+//			
+//
+//			tensor[1] -= imgRD.getHBorder();
+//			tensor[3] -= imgRD.getHBorder();
+//
+//			std::cout << "tensor:" << tensor << std::endl;
+//			std::cout << "imgRD.getHBorder(:" << imgRD.getHBorder() << std::endl;
+//			std::cout << "imgRD.getWBorder(:" << imgRD.getWBorder() << std::endl;
+//
+//			std::cout << "imgRD.getScale():" << imgRD.getScale() << std::endl;
+//
+//			//恢复原本尺寸
+//			tensor[0] /= imgRD.getScale();
+//			tensor[1] /= imgRD.getScale();
+//			tensor[2] /= imgRD.getScale();
+//			tensor[3] /= imgRD.getScale();
+//
+//			
+//			// 加了黑边之后预测结果可能在黑边上，就会造成结果为负数,或则超过了最大边界
+//			tensor[0].clamp_(0, imgRD.getW());
+//			tensor[1].clamp_(0, imgRD.getH());
+//			tensor[2].clamp_(0, imgRD.getW());
+//			tensor[3].clamp_(0, imgRD.getH());
+//		}
+//		
+//		resultOrg.push_back(data);
+//	}
+//	return resultOrg;
+//}
 
 std::vector<torch::Tensor> YoloV5::prediction(torch::Tensor data)
 {
@@ -242,31 +314,84 @@ std::vector<torch::Tensor> YoloV5::prediction(std::vector<cv::Mat> imgs)
 ImageResizeData YoloV5::resize(cv::Mat img, int height, int width)
 {
 	ImageResizeData imgResizeData;
-	int w = img.cols, h = img.rows;
-	imgResizeData.setH(h);
-	imgResizeData.setW(w);
+	double in_h = static_cast<double>(img.rows);
+	double in_w = static_cast<double>(img.cols);
+	double out_h = static_cast<double>(height);
+	double out_w = static_cast<double>(width);
+
+	imgResizeData.setH(in_h);
+	imgResizeData.setW(in_w);
 	imgResizeData.setHeight(height);
 	imgResizeData.setWidth(width);
-	bool isW = (float)w / (float)h > (float)width / (float)height;
+	bool isW = in_w / in_h > out_w / out_h;
 
-	cv::resize(img, img, cv::Size(
-		isW ? width : (int)((float)height / (float)h * w),
-		isW ? (int)((float)width / (float)w * h) : height));
 
-	w = img.cols, h = img.rows;
-	if (isW)
-	{
-		imgResizeData.setBorder((height - h) / 2);
-		cv::copyMakeBorder(img, img, (height - h) / 2, height - h - (height - h) / 2, 0, 0, cv::BORDER_CONSTANT);
-	}
-	else
-	{
-		imgResizeData.setBorder((width - w) / 2);
-		cv::copyMakeBorder(img, img, 0, 0, (width - w) / 2, width - w - (width - w) / 2, cv::BORDER_CONSTANT);
-	}
+	double scale = std::min(out_w / in_w, out_h / in_h);
+
+	std::cout << in_h << " " << in_w << " " << out_h << " " << out_w << std::endl;
+	std::cout << "scale" << scale<< std::endl;
+
+	imgResizeData.setScale(scale);
+
+	int mid_h = round(in_h * scale);
+	int mid_w = round(in_w * scale);
+
+	cv::resize(img, img, cv::Size(mid_w, mid_h));
+
+	float dw = out_w - mid_w, dh = out_h - mid_h;
+	dw /= 2;
+	dh /= 2;
+	
+
+	std::cout << "mid_w:" << mid_w << std::endl;
+	std::cout << "mid_h:" << mid_h << std::endl;
+
+	std::cout << "dw:" << dw << std::endl;
+	std::cout << "dh:" << dh << std::endl;
+
+	int top = int(round(dh - 0.1)), bottom = int(round(dh + 0.1));
+	
+	int left = int(round(dw - 0.1)), right =  int(round(dw + 0.1));
+
+	std::cout << "top:" << top << "bottom:" << bottom << std::endl;
+	std::cout << "left:" << left << "right:" << right << std::endl;
+
+	cv::copyMakeBorder(img, img, top, bottom, left, right, cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
+
+
+
 	imgResizeData.setImg(img);
 	return imgResizeData;
 }
+
+//ImageResizeData YoloV5::resize(cv::Mat img, int height, int width)
+//{
+//	ImageResizeData imgResizeData;
+//	int w = img.cols, h = img.rows;
+//	imgResizeData.setH(h);
+//	imgResizeData.setW(w);
+//	imgResizeData.setHeight(height);
+//	imgResizeData.setWidth(width);
+//	bool isW = (float)w / (float)h > (float)width / (float)height;
+//
+//	cv::resize(img, img, cv::Size(
+//		isW ? width : (int)((float)height / (float)h * w),
+//		isW ? (int)((float)width / (float)w * h) : height));
+//
+//	w = img.cols, h = img.rows;
+//	if (isW)
+//	{
+//		imgResizeData.setBorder((height - h) / 2);
+//		cv::copyMakeBorder(img, img, (height - h) / 2, height - h - (height - h) / 2, 0, 0, cv::BORDER_CONSTANT);
+//	}
+//	else
+//	{
+//		imgResizeData.setBorder((width - w) / 2);
+//		cv::copyMakeBorder(img, img, 0, 0, (width - w) / 2, width - w - (width - w) / 2, cv::BORDER_CONSTANT);
+//	}
+//	imgResizeData.setImg(img);
+//	return imgResizeData;
+//}
 
 ImageResizeData YoloV5::resize(cv::Mat img)
 {
@@ -446,12 +571,13 @@ int ImageResizeData::getH()
 	return h;
 }
 
-void ImageResizeData::setBorder(int border)
+
+void ImageResizeData::setScale(double scale)
 {
-	this->border = border;
+	this->scale = scale;
 }
 
-int ImageResizeData::getBorder()
+double ImageResizeData::getScale()
 {
-	return border;
+	return scale;
 }
