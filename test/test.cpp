@@ -6,12 +6,15 @@
 
 int main()
 {
-	// 第二个参数为是否启用 cuda 详细用法可以参考 YoloV5.h 文件
-	YoloV5 yolo(torch::cuda::is_available() ? "./yolov5s.cuda.pt" : "./yolov5s.cpu.pt", torch::cuda::is_available());
+
+	std::cout << torch::cuda::is_available() << std::endl;
+
+	//推荐使用绝对路径
+	YoloV5 yolo( R"(D:\yolov5_model\lipstick\2021-12-19\last-gpu-640.torchscript)" , false);
 	yolo.prediction(torch::rand({1, 3, 640, 640}));
 	// 读取分类标签（我们用的官方的所以这里是 coco 中的分类）
 	// 其实这些代码无所谓哪 只是后面预测出来的框没有标签罢了
-	std::ifstream f("./coco.txt");
+	std::ifstream f(R"(D:\yolov5_model\lipstick\2021-12-19\coco.names)");
 	std::string name = "";
 	int i = 0;
 	std::map<int, std::string> labels;
@@ -27,15 +30,11 @@ int main()
 	// 传入方式是构造 YoloV5 对象时传入 width 默认值为 640，height 默认值为 640
 	cap.set(cv::CAP_PROP_FRAME_WIDTH, 1000);
 	cap.set(cv::CAP_PROP_FRAME_HEIGHT, 800);
-	cv::Mat frame;
-	while (cap.isOpened())
-	{
-		// 读取一帧
-		cap.read(frame);
+	cv::Mat frame = cv::imread(R"(E:\yiliang\Pictures\lipstick\2021-12-12_YIChang\CCD1\17336@0.bmp)");
 		if (frame.empty())
 		{
 			std::cout << "Read frame failed!" << std::endl;
-			break;
+			return 0;
 		}
 		// 预测
 		// 简单吧，两行代码预测结果就出来了，封装的还可以吧 嘚瑟
@@ -47,7 +46,8 @@ int main()
 		frame = yolo.drawRectangle(frame, r[0], labels);
 		// show 图片
 		cv::imshow("", frame);
-		if (cv::waitKey(1) == 27) break;
-	}
+		cv::waitKey(0);
+
+
 	return 0;
 }

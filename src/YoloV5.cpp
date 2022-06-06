@@ -174,9 +174,6 @@ std::vector<torch::Tensor> YoloV5::sizeOriginal(std::vector<torch::Tensor> resul
 		double ph = (  imgRD.getHeight() - imgRD.getH() * imgRD.getScale()) / 2;
 		double pw = (imgRD.getWidth()  -  imgRD.getW() * imgRD.getScale()) / 2;
 
-		std::cout << "ph:" << ph << std::endl;
-		std::cout << "pw:" << pw << std::endl;
-
 		auto x1 = data.select(1, 0);
 		auto y1 = data.select(1, 1);
 		auto x2 = data.select(1, 2);
@@ -328,9 +325,6 @@ ImageResizeData YoloV5::resize(cv::Mat img, int height, int width)
 
 	double scale = std::min(out_w / in_w, out_h / in_h);
 
-	std::cout << in_h << " " << in_w << " " << out_h << " " << out_w << std::endl;
-	std::cout << "scale" << scale<< std::endl;
-
 	imgResizeData.setScale(scale);
 
 	int mid_h = round(in_h * scale);
@@ -342,19 +336,9 @@ ImageResizeData YoloV5::resize(cv::Mat img, int height, int width)
 	dw /= 2;
 	dh /= 2;
 	
-
-	std::cout << "mid_w:" << mid_w << std::endl;
-	std::cout << "mid_h:" << mid_h << std::endl;
-
-	std::cout << "dw:" << dw << std::endl;
-	std::cout << "dh:" << dh << std::endl;
-
 	int top = int(round(dh - 0.1)), bottom = int(round(dh + 0.1));
 	
 	int left = int(round(dw - 0.1)), right =  int(round(dw + 0.1));
-
-	std::cout << "top:" << top << "bottom:" << bottom << std::endl;
-	std::cout << "left:" << left << "right:" << right << std::endl;
 
 	cv::copyMakeBorder(img, img, top, bottom, left, right, cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
 

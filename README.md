@@ -9,6 +9,7 @@
     opencv
     libtorch
     ```
+    如需DEBUG运行，请安装libtorch DEBUG版本。
 
 2. 打开此项目下面的 `CMakeLists.txt` 按下面的方式添加路径
     ```
